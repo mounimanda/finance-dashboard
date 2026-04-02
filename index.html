@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>Finwise Dashboard | Finance UI</title>
+  <!-- Tailwind + Font Awesome + Google Fonts -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <!-- Recharts (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/recharts@2.12.0/umd/Recharts.js"></script>
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    /* custom smooth transitions & scrollbar */
+    body {
+      background: #f3f6fc;
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    }
+    .scrollbar-thin::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .scrollbar-thin::-webkit-scrollbar-track {
+      background: #e2e8f0;
+      border-radius: 10px;
+    }
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border-radius: 10px;
+    }
+    .card-hover {
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card-hover:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 20px 25px -12px rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+<body class="antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useEffect } = React;
+    const {
+      ResponsiveContainer,
+      LineChart,
+      Line,
+      XAxis,
+      YAxis,
+      Tooltip,
+      CartesianGrid,
+      Legend,
+      PieChart,
+      Pie,
+      Cell,
+      BarChart,
+      Bar
+    } = Recharts;
+
+    // ---------- MOCK DATA ----------
+    const MOCK_TRANSACTIONS = [
+      { id: 't1', date: '2025-03-01', description: 'Salary deposit', amount: 4850, type: 'income', category: 'Salary' },
+      { id: 't2', date: '2025-03-03', description: 'Grocery store', amount: 128.5, type: 'expense', category: 'Food' },
+      { id: 't3', date: '2025-03-05', description: 'Netflix subscription', amount: 15.99, type: 'expense', category: 'Entertainment' },
+      { id: 't4', date: '2025-03-07', description: 'Freelance project', amount: 620, type: 'income', category: 'Freelance' },
+      { id: 't5', date: '2025-03-10', description: 'Coffee shop', amount: 7.25, type: 'expense', category: 'Food' },
+      { id: 't6', date: '2025-03-12', description: 'Electric bill', amount: 89.3, type: 'expense', category: 'Utilities' },
+      { id: 't7', date: '2025-03-15', description: 'Gym membership', amount: 45, type: 'expense', category: 'Health' },
+      { id: 't8', date: '2025-03-18', description: 'Dividend income', amount: 120, type: 'income', category: 'Investment' },
+      { id: 't9', date: '2025-03-20', description: 'Restaurant dinner', amount: 64.9, type: 'expense', category: 'Food' },
+      { id: 't10', date: '2025-03-22', description: 'New laptop', amount: 1299, type: 'expense', category: 'Shopping' },
+      { id: 't11', date: '2025-03-25', description: 'Refund from Amazon', amount: 39.99, type: 'income', category: 'Refund' },
+      { id: 't12', date: '2025-03-28', description: 'Spotify', amount: 11.99, type: 'expense', category: 'Entertainment' },
+      { id: 't13', date: '2025-02-20', description: 'February bonus', amount: 300, type: 'income', category: 'Salary' },
+      { id: 't14', date: '2025-02-18', description: 'Winter coat', amount: 210, type: 'expense', category: 'Shopping' },
+      { id: 't15', date: '2025-02-10', description: 'Internet bill', amount: 74.5, type: 'expense', category: 'Utilities' },
+    ];
+
+    // helper: compute summary & insights
+    const computeStats = (transactions) => {
+      let totalIncome = 0, totalExpense = 0;
+      transactions.forEach(t => {
+        if (t.type === 'income') totalIncome += t.amount;
+        else totalExpense += t.amount;
+      });
+      const balance = totalIncome - totalExpense;
+      return { totalIncome, totalExpense, balance };
+    };
+
+    // group by category for expenses (spending breakdown)
+    const getCategorySpending = (transactions) => {
+      const spendingMap = new Map();
+      transactions.filter(t => t.type === 'expense').forEach(t => {
+        const cat = t.category;
+        const prev = spendingMap.get(cat) || 0;
+        spendingMap.set(cat, prev + t.amount);
+      });
+      return Array.from(spendingMap.entries()).map(([name, value]) => ({ name, value }));
+    };
+
+    // monthly trend (last 3 months: Feb, Mar & current projection)
+    const getMonthlyTrend = (transactions) => {
+      const months = { '2025-02': { income: 0, expense: 0 }, '2025-03': { income: 0, expense: 0 } };
+      transactions.forEach(t => {
+        const dateKey = t.date.slice(0,7);
+        if (months[dateKey]) {
+          if (t.type === 'income') months[dateKey].income += t.amount;
+          else months[dateKey].expense += t.amount;
+        }
+      });
+      return [
+        { month: 'Feb', income: months['2025-02'].income, expense: months['2025-02'].expense },
+        { month: 'Mar', income: months['2025-03'].income, expense: months['2025-03'].expense }
+      ];
+    };
+
+    // Highest spending category insight
+    const getHighestSpendingCat = (transactions) => {
+      const spending = getCategorySpending(transactions);
+      if (spending.length === 0) return { name: 'None', value: 0 };
+      return spending.reduce((max, curr) => (curr.value > max.value ? curr : max), spending[0]);
+    };
+
+    // ---------- MAIN APP COMPONENT ----------
+    const FinanceDashboard = () => {
+      // state
+      const [transactions, setTransactions] = useState(MOCK_TRANSACTIONS);
+      const [role, setRole] = useState('viewer'); // 'viewer' or 'admin'
+      const [searchTerm, setSearchTerm] = useState('');
+      const [filterType, setFilterType] = useState('all'); // all, income, expense
+      const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
+      
+      // for admin: add/edit modal
+      const [showModal, setShowModal] = useState(false);
+      const [editingTx, setEditingTx] = useState(null);
+      const [formData, setFormData] = useState({ description: '', amount: '', category: 'Food', type: 'expense', date: '' });
+
+      // derived stats and charts
+      const stats = useMemo(() => computeStats(transactions), [transactions]);
+      const spendingBreakdown = useMemo(() => getCategorySpending(transactions), [transactions]);
+      const monthlyTrend = useMemo(() => getMonthlyTrend(transactions), [transactions]);
+      const highestSpending = useMemo(() => getHighestSpendingCat(transactions), [transactions]);
+      
+      // monthly comparison insight (percentage change in expenses)
+      const monthlyComparison = useMemo(() => {
+        if (monthlyTrend.length >= 2) {
+          const prevExp = monthlyTrend[0].expense;
+          const currExp = monthlyTrend[1].expense;
+          if (prevExp === 0) return { change: 0, text: 'No previous data' };
+          const percentChange = ((currExp - prevExp) / prevExp) * 100;
+          return { change: percentChange.toFixed(1), increased: percentChange > 0 };
+        }
+        return { change: 0, text: 'Insufficient data' };
+      }, [monthlyTrend]);
+
+      // filter + search + sort transactions
+      const filteredTransactions = useMemo(() => {
+        let filtered = [...transactions];
+        // type filter
+        if (filterType !== 'all') {
+          filtered = filtered.filter(t => t.type === filterType);
+        }
+        // search (description)
+        if (searchTerm.trim() !== '') {
+          filtered = filtered.filter(t => t.description.toLowerCase().includes(searchTerm.toLowerCase()));
+        }
+        // sorting
+        filtered.sort((a, b) => {
+          let aVal = a[sortConfig.key];
+          let bVal = b[sortConfig.key];
+          if (sortConfig.key === 'date') {
+            aVal = new Date(a.date);
+            bVal = new Date(b.date);
+          }
+          if (sortConfig.key === 'amount') {
+            aVal = a.amount;
+            bVal = b.amount;
+          }
+          if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+          if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+          return 0;
+        });
+        return filtered;
+      }, [transactions, filterType, searchTerm, sortConfig]);
+
+      // helper: add/update transaction
+      const handleSaveTransaction = () => {
+        if (!formData.description || !formData.amount || !formData.date) return;
+        const amountNum = parseFloat(formData.amount);
+        if (isNaN(amountNum)) return;
+        if (editingTx) {
+          // update existing
+          const updated = transactions.map(tx => 
+            tx.id === editingTx.id ? { ...tx, description: formData.description, amount: amountNum, category: formData.category, type: formData.type, date: formData.date } : tx
+          );
+          setTransactions(updated);
+        } else {
+          // add new
+          const newId = 'tx_' + Date.now() + Math.floor(Math.random() * 1000);
+          const newTx = {
+            id: newId,
+            description: formData.description,
+            amount: amountNum,
+            category: formData.category,
+            type: formData.type,
+            date: formData.date,
+          };
+          setTransactions([newTx, ...transactions]);
+        }
+        resetModal();
+      };
+
+      const deleteTransaction = (id) => {
+        if (role !== 'admin') return;
+        setTransactions(transactions.filter(tx => tx.id !== id));
+      };
+
+      const openAddModal = () => {
+        setEditingTx(null);
+        setFormData({ description: '', amount: '', category: 'Food', type: 'expense', date: new Date().toISOString().slice(0,10) });
+        setShowModal(true);
+      };
+
+      const openEditModal = (tx) => {
+        if (role !== 'admin') return;
+        setEditingTx(tx);
+        setFormData({
+          description: tx.description,
+          amount: tx.amount.toString(),
+          category: tx.category,
+          type: tx.type,
+          date: tx.date,
+        });
+        setShowModal(true);
+      };
+
+      const resetModal = () => {
+        setShowModal(false);
+        setEditingTx(null);
+        setFormData({ description: '', amount: '', category: 'Food', type: 'expense', date: '' });
+      };
+
+      const handleSort = (key) => {
+        setSortConfig(prev => ({
+          key,
+          direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+        }));
+      };
+
+      // COLORS for pie chart
+      const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec489a', '#14b8a6'];
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 p-4 md:p-6">
+          <div className="max-w-7xl mx-auto">
+            {/* Header + Role Toggle */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
+                  <i className="fas fa-chart-line text-indigo-500"></i> Finwise
+                </h1>
+                <p className="text-slate-500 text-sm">Smart finance overview</p>
+              </div>
+              <div className="flex items-center gap-4 bg-white/60 backdrop-blur-sm p-2 rounded-xl shadow-sm">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <i className="fas fa-user-tag text-indigo-400"></i>
+                  <span className="text-slate-600">Role:</span>
+                  <div className="relative inline-flex bg-slate-100 rounded-full p-1">
+                    <button 
+                      onClick={() => setRole('viewer')}
+                      className={`px-3 py-1 text-xs rounded-full transition ${role === 'viewer' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      <i className="fas fa-eye mr-1"></i> Viewer
+                    </button>
+                    <button 
+                      onClick={() => setRole('admin')}
+                      className={`px-3 py-1 text-xs rounded-full transition ${role === 'admin' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      <i className="fas fa-shield-alt mr-1"></i> Admin
+                    </button>
+                  </div>
+                </div>
+                {role === 'admin' && (
+                  <button onClick={openAddModal} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-md transition flex items-center gap-2">
+                    <i className="fas fa-plus"></i> Add Transaction
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-8">
+              <div className="bg-white rounded-2xl p-5 shadow-md card-hover border-l-8 border-l-green-500">
+                <div className="flex justify-between items-center"><p className="text-slate-500 text-sm">Total Balance</p><i className="fas fa-wallet text-green-500 text-xl"></i></div>
+                <p className="text-3xl font-bold text-slate-800 mt-2">${stats.balance.toFixed(2)}</p>
+              </div>
+              <div className="bg-white rounded-2xl p-5 shadow-md card-hover border-l-8 border-l-emerald-400">
+                <div className="flex justify-between items-center"><p className="text-slate-500 text-sm">Total Income</p><i className="fas fa-arrow-up text-emerald-500"></i></div>
+                <p className="text-2xl font-bold text-emerald-600 mt-2">+${stats.totalIncome.toFixed(2)}</p>
+              </div>
+              <div className="bg-white rounded-2xl p-5 shadow-md card-hover border-l-8 border-l-rose-400">
+                <div className="flex justify-between items-center"><p className="text-slate-500 text-sm">Total Expenses</p><i className="fas fa-arrow-down text-rose-500"></i></div>
+                <p className="text-2xl font-bold text-rose-500 mt-2">-${stats.totalExpense.toFixed(2)}</p>
+              </div>
+            </div>
+
+            {/* Charts Section: Time + Category */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+              {/* Balance Trend (monthly income/expense) */}
+              <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-5 shadow-md">
+                <h2 className="font-semibold text-slate-700 mb-3 flex items-center gap-2"><i className="fas fa-chart-line text-indigo-500"></i> Balance Trend (Monthly)</h2>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={monthlyTrend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="month" />
+                    <YAxis />
+                    <Tooltip formatter={(value) => `$${value.toFixed(2)}`} />
+                    <Legend />
+                    <Bar dataKey="income" fill="#10b981" name="Income" radius={[4,4,0,0]} />
+                    <Bar dataKey="expense" fill="#f97316" name="Expense" radius={[4,4,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              {/* Spending breakdown pie chart */}
+              <div className="bg-white/90 rounded-2xl p-5 shadow-md">
+                <h2 className="font-semibold text-slate-700 mb-3 flex items-center gap-2"><i className="fas fa-chart-pie text-indigo-500"></i> Spending by Category</h2>
+                {spendingBreakdown.length === 0 ? (
+                  <div className="h-60 flex items-center justify-center text-slate-400">No expense data</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <PieChart>
+                      <Pie data={spendingBreakdown} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({name, percent}) => `${name} ${(percent*100).toFixed(0)}%`}>
+                        {spendingBreakdown.map((entry, idx) => <Cell key={`cell-${idx}`} fill={COLORS[idx % COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip formatter={(value) => `$${value.toFixed(2)}`} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* Insights Section */}
+            <div className="bg-gradient-to-r from-indigo-50 to-sky-50 rounded-2xl p-5 mb-8 shadow-sm border border-indigo-100">
+              <h2 className="font-bold text-indigo-800 flex items-center gap-2"><i className="fas fa-lightbulb text-amber-500"></i> Smart Insights</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3 text-sm">
+                <div className="flex items-center gap-3 bg-white/60 p-3 rounded-xl"><i className="fas fa-chart-simple text-indigo-500 text-xl"></i><div><p className="text-slate-500">Highest spending</p><p className="font-semibold">{highestSpending.name || '—'} <span className="text-indigo-600">${highestSpending.value.toFixed(2)}</span></p></div></div>
+                <div className="flex items-center gap-3 bg-white/60 p-3 rounded-xl"><i className="fas fa-calendar-week text-amber-500"></i><div><p className="text-slate-500">Monthly expense change</p><p className={`font-semibold ${monthlyComparison.increased ? 'text-rose-500' : 'text-emerald-500'}`}>{monthlyComparison.change !== 0 ? (monthlyComparison.increased ? `↑ ${monthlyComparison.change}%` : `↓ ${Math.abs(monthlyComparison.change)}%`) : 'stable'}</p></div></div>
+                <div className="flex items-center gap-3 bg-white/60 p-3 rounded-xl"><i className="fas fa-coins text-emerald-500"></i><div><p className="text-slate-500">Income vs Expense ratio</p><p className="font-semibold">{(stats.totalIncome / (stats.totalExpense || 1)).toFixed(2)}x</p></div></div>
+              </div>
+            </div>
+
+            {/* Transactions Section */}
+            <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+              <div className="p-5 border-b flex flex-col md:flex-row justify-between gap-4 flex-wrap">
+                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><i className="fas fa-list-ul text-indigo-500"></i> Transactions</h2>
+                <div className="flex gap-2 flex-wrap">
+                  <div className="relative">
+                    <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                    <input type="text" placeholder="Search description" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-9 pr-3 py-2 border rounded-xl text-sm w-40 md:w-48 focus:ring-indigo-200" />
+                  </div>
+                  <select value={filterType} onChange={e => setFilterType(e.target.value)} className="border rounded-xl px-3 py-2 text-sm bg-white">
+                    <option value="all">All types</option>
+                    <option value="income">Income</option>
+                    <option value="expense">Expense</option>
+                  </select>
+                  <button onClick={() => handleSort('date')} className={`text-sm px-3 py-2 rounded-xl border ${sortConfig.key === 'date' ? 'bg-indigo-50 border-indigo-300' : 'bg-white'}`}><i className="fas fa-calendar-alt mr-1"></i> Date {sortConfig.key === 'date' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</button>
+                  <button onClick={() => handleSort('amount')} className={`text-sm px-3 py-2 rounded-xl border ${sortConfig.key === 'amount' ? 'bg-indigo-50 border-indigo-300' : 'bg-white'}`}><i className="fas fa-dollar-sign mr-1"></i> Amount {sortConfig.key === 'amount' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</button>
+                </div>
+              </div>
+              <div className="overflow-x-auto max-h-[420px] overflow-y-auto scrollbar-thin">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                      {role === 'admin' && <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredTransactions.length === 0 ? (
+                      <tr><td colSpan={role === 'admin' ? 5 : 4} className="text-center py-12 text-slate-400"><i className="fas fa-inbox text-2xl mb-2 block"></i>No transactions found</td></tr>
+                    ) : (
+                      filteredTransactions.map(tx => (
+                        <tr key={tx.id} className="hover:bg-slate-50 transition">
+                          <td className="px-6 py-3 text-sm text-slate-600">{tx.date}</td>
+                          <td className="px-6 py-3 text-sm font-medium text-slate-800">{tx.description}</td>
+                          <td className="px-6 py-3 text-sm"><span className="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-700">{tx.category}</span></td>
+                          <td className={`px-6 py-3 text-sm font-semibold text-right ${tx.type === 'income' ? 'text-emerald-600' : 'text-rose-500'}`}>{tx.type === 'income' ? '+' : '-'}${tx.amount.toFixed(2)}</td>
+                          {role === 'admin' && (
+                            <td className="px-4 py-3 text-center space-x-2">
+                              <button onClick={() => openEditModal(tx)} className="text-indigo-500 hover:text-indigo-700"><i className="fas fa-edit"></i></button>
+                              <button onClick={() => deleteTransaction(tx.id)} className="text-rose-400 hover:text-rose-600"><i className="fas fa-trash-alt"></i></button>
+                            </td>
+                          )}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal for Add/Edit (admin only) */}
+            {showModal && role === 'admin' && (
+              <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={resetModal}>
+                <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-fade-in" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-xl font-bold mb-4">{editingTx ? 'Edit Transaction' : 'Add New Transaction'}</h3>
+                  <div className="space-y-3">
+                    <input type="text" placeholder="Description" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full border rounded-xl p-2" />
+                    <input type="number" placeholder="Amount" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} className="w-full border rounded-xl p-2" />
+                    <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full border rounded-xl p-2">
+                      <option>Food</option><option>Salary</option><option>Entertainment</option><option>Shopping</option><option>Utilities</option><option>Health</option><option>Freelance</option>
+                    </select>
+                    <select value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} className="w-full border rounded-xl p-2">
+                      <option value="expense">Expense</option><option value="income">Income</option>
+                    </select>
+                    <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full border rounded-xl p-2" />
+                  </div>
+                  <div className="flex justify-end gap-3 mt-6">
+                    <button onClick={resetModal} className="px-4 py-2 rounded-xl border">Cancel</button>
+                    <button onClick={handleSaveTransaction} className="bg-indigo-600 text-white px-4 py-2 rounded-xl">Save</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<FinanceDashboard />);
+  </script>
+</body>
+</html>
